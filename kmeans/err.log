@@ -1,0 +1,52 @@
+[info] welcome to sbt 1.7.3 (Oracle Corporation Java 1.8.0_333)
+[info] loading settings for project kmeans-build from plugins.sbt ...
+[info] loading project definition from /home/morteza/scala-example/kmeans/project
+[info] loading settings for project kmeans from build.sbt ...
+[info] set current project to Kmeans (in build file:/home/morteza/scala-example/kmeans/)
+[info] compiling 1 Scala source to /home/morteza/scala-example/kmeans/target/scala-2.12/classes ...
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:55:22: not found: value DistanceMeasure
+[error]       epsilon, seed, DistanceMeasure.EUCLIDEAN)
+[error]                      ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:64:5: not found: value DistanceMeasure
+[error]     DistanceMeasure.EUCLIDEAN)
+[error]     ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:186:5: not found: value DistanceMeasure
+[error]     DistanceMeasure.validateDistanceMeasure(distanceMeasure)
+[error]     ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:245:39: not found: value DistanceMeasure
+[error]         val distanceMeasureInstance = DistanceMeasure.decodeFromString(this.distanceMeasure)
+[error]                                       ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:395:32: not found: type DistanceMeasure
+[error]       distanceMeasureInstance: DistanceMeasure): Array[VectorWithNorm] = {
+[error]                                ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:265:35: not found: value DistanceMeasure
+[error]     val distanceMeasureInstance = DistanceMeasure.decodeFromString(this.distanceMeasure)
+[error]                                   ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:290:7: not found: value DistanceMeasure
+[error]       DistanceMeasure.shouldComputeStatistics(centers.length)
+[error]       ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:292:7: not found: value DistanceMeasure
+[error]       DistanceMeasure.shouldComputeStatisticsLocally(centers.length, numFeatures)
+[error]       ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:325:30: value * is not a member of Any
+[error]           costAccum.add(cost * point.weight)
+[error]                              ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:327:28: type mismatch;
+[error]  found   : Any
+[error]  required: Int
+[error]           clusterWeightSum(bestCenter) += point.weight
+[error]                            ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:453:70: type mismatch;
+[error]  found   : x$21.type (with underlying type Int)
+[error]  required: Nothing
+[error]       val myWeights = distinctCenters.indices.map(countMap.getOrElse(_, 0L).toDouble).toArray
+[error]                                                                      ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:454:7: not found: value LocalKMeans
+[error]       LocalKMeans.kMeansPlusPlus(0, distinctCenters, myWeights, k, 30)
+[error]       ^
+[error] /home/morteza/scala-example/kmeans/src/main/scala/MyKMeans.scala:512:9: not found: type KMeans
+[error]     new KMeans().setK(k)
+[error]         ^
+[error] 13 errors found
+[error] (Compile / compileIncremental) Compilation failed
+[error] Total time: 4 s, completed 21-Aug-2023 3:25:35 PM
