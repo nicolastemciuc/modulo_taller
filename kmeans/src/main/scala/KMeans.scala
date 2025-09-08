@@ -1,59 +1,71 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // scalastyle:off println
 package org.apache.spark.examples.mllib
 
 import org.apache.spark.{SparkConf, SparkContext}
-// $example on$
-import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}
-import org.apache.spark.mllib.linalg.Vectors
-// $example off$
+import org.apache.spark.mllib.clustering.KMeans
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
+
+import java.io.{ByteArrayInputStream, DataInputStream}
 
 object KMeansExample {
-
   def main(args: Array[String]): Unit = {
-
     val conf = new SparkConf().setAppName("KMeansExample")
-    val sc = new SparkContext(conf)
+    val sc   = new SparkContext(conf)
 
-    // $example on$
-    // Load and parse the data
-    val data = sc.textFile("s3://morteza-files-ca/data/kmeans/birch3.txt")
-    val parsedData = data.map(s => Vectors.dense(s.split(' ').map(_.toDouble))).cache()
+    // Pass the IDX images path as arg(0) if you like
+    val path = if (args.nonEmpty) args(0) else "/mnt/datasets/kmeans/t10k-images.idx3-ubyte"
 
-    var c = 0
-    val numTotalIterations = 1000
-    
-    while (c < numTotalIterations) {
-      // Cluster the data into two classes using KMeans
-      val numClusters = 100
-      val numIterations = 20000
-      val clusters = KMeans.train(parsedData, numClusters, numIterations)
-      // Evaluate clustering by computing Within Set Sum of Squared Errors
-      val WSSSE = clusters.computeCost(parsedData)
-      println(s"Within Set Sum of Squared Errors = $WSSSE")
-      c = c + 1
-    }
+    // Read the single binary IDX file on executors.
+    // IMPORTANT: Read the entire file into a byte array FIRST so we can parse eagerly
+    // and avoid "Stream is closed!" issues from lazy iterators.
+    val parsedData = sc.binaryFiles(path, minPartitions = 1).flatMap { case (_, pds) =>
+      val bytes = pds.toArray() // read fully on the executor
+      val in = new DataInputStream(new ByteArrayInputStream(bytes))
+      def readInt(): Int = in.readInt() // big-endian
 
-    // Save and load model
-    // clusters.save(sc, "target/org/apache/spark/KMeansExample/KMeansModel")
-    // val sameModel = KMeansModel.load(sc, "target/org/apache/spark/KMeansExample/KMeansModel")
-    // $example off$
+      // Parse header
+      val magic     = readInt()
+      require(magic == 2051, s"Expected magic 2051 for images, got $magic")
+      val numImages = readInt()
+      val numRows   = readInt()
+      val numCols   = readInt()
+      val imageSize = numRows * numCols
+
+      val buf = new Array[Byte](imageSize)
+      val out = new Array[Vector](numImages)
+      var i   = 0
+      while (i < numImages) {
+        in.readFully(buf)
+        // unsigned byte -> double in [0,1]
+        val doubles = new Array[Double](imageSize)
+        var j = 0
+        while (j < imageSize) {
+          doubles(j) = (buf(j) & 0xFF).toDouble / 255.0
+          j += 1
+        }
+        out(i) = Vectors.dense(doubles)
+        i += 1
+      }
+      in.close()
+      out.toIndexedSeq // eager, safe to return
+    }.cache()
+
+    // Sanity check forces materialization
+    val n = parsedData.count()
+    require(n > 0, s"No images parsed from $path")
+
+    // K-Means (good starting point for MNIST)
+    val numClusters   = 10
+    val numIterations = 40
+    val model = KMeans.train(parsedData, numClusters, numIterations)
+
+    val WSSSE = model.computeCost(parsedData)
+    println(s"Images: $n | k=$numClusters iters=$numIterations | WSSSE=$WSSSE")
+
+    // Quick cluster size summary
+    val clusterSizes = parsedData.map(v => model.predict(v)).countByValue().toSeq.sortBy(_._1)
+    println("Cluster sizes:")
+    clusterSizes.foreach { case (cid, cnt) => println(f"  $cid%2d -> $cnt%6d") }
 
     sc.stop()
   }
