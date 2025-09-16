@@ -1,0 +1,7 @@
+[0m[[0m[0mdebug[0m] [0m[0mPackaging /home/cluster1/temciuc/page-rank/target/scala-2.12/pagerankexample_2.12-1.0.jar ...[0m
+[0m[[0m[0mdebug[0m] [0m[0mInput file mappings:[0m
+[0m[[0m[0mdebug[0m] [0m[0m	PageRankExample.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /home/cluster1/temciuc/page-rank/target/scala-2.12/classes/PageRankExample.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	PageRankExample$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /home/cluster1/temciuc/page-rank/target/scala-2.12/classes/PageRankExample$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0mDone packaging.[0m
