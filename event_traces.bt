@@ -1,0 +1,249 @@
+#!/usr/bin/env bpftrace
+
+/*
+  Event Traces CSV (no -D flags required)
+  Columns: ts_ns,host,pid,tid,comm,event,arg1,arg2,arg3,retval
+
+  How to run:
+    sudo bpftrace ./event_tracer.bt > /tmp/event_trace.csv
+
+  Edit this to filter by process name (comm regex):
+*/
+inline int match_task() {
+  // e.g., "java|spark|python3" or ".*" for all
+  return (comm ~ "java|spark|python3");
+}
+
+/* Print header once */
+BEGIN
+{
+  printf("ts_ns,host,pid,tid,comm,event,arg1,arg2,arg3,retval\n");
+}
+
+/* ===== Syscall tracepoints (portable) ===== */
+tracepoint:syscalls:sys_enter_read
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_read,%d,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->fd, args->count);
+}
+
+tracepoint:syscalls:sys_exit_read
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_read,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_write
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_write,%d,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->fd, args->count);
+}
+
+tracepoint:syscalls:sys_exit_write
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_write,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_openat
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_openat,\"%s\",%d,,\n",
+         nsecs, "host", pid, tid, comm, str(args->filename), args->flags);
+}
+
+tracepoint:syscalls:sys_exit_openat
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_openat,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_close
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_close,%d,,, \n",
+         nsecs, "host", pid, tid, comm, args->fd);
+}
+
+tracepoint:syscalls:sys_exit_close
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_close,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_sendto
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_sendto,%d,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->fd, args->len);
+}
+
+tracepoint:syscalls:sys_exit_sendto
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_sendto,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_recvfrom
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_recvfrom,%d,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->fd, args->len);
+}
+
+tracepoint:syscalls:sys_exit_recvfrom
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_recvfrom,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_connect
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_connect,%d,,, \n",
+         nsecs, "host", pid, tid, comm, args->fd);
+}
+
+tracepoint:syscalls:sys_exit_connect
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_connect,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_accept4
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_accept4,%d,,, \n",
+         nsecs, "host", pid, tid, comm, args->fd);
+}
+
+tracepoint:syscalls:sys_exit_accept4
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_accept4,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_futex
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_futex,%p,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->uaddr, args->op);
+}
+
+tracepoint:syscalls:sys_exit_futex
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_exit_futex,,,,%d\n",
+         nsecs, "host", pid, tid, comm, args->ret);
+}
+
+tracepoint:syscalls:sys_enter_epoll_pwait
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_epoll_pwait,%d,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->epfd, args->maxevents);
+}
+
+tracepoint:syscalls:sys_enter_poll
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_poll,%p,%d,,\n",
+         nsecs, "host", pid, tid, comm, args->ufds, args->nfds);
+}
+
+tracepoint:syscalls:sys_enter_mmap
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_mmap,%d,,, \n",
+         nsecs, "host", pid, tid, comm, args->len);
+}
+
+tracepoint:syscalls:sys_enter_munmap
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,sys_enter_munmap,%d,,, \n",
+         nsecs, "host", pid, tid, comm, args->len);
+}
+
+/* ===== TCP send (best-effort kprobe) =====
+   Signature varies by kernel; if mismatch, it just won't fire.
+*/
+kprobe:tcp_sendmsg
+/ match_task() /
+{
+  // On many kernels, arg2 ~ size; in bpftrace it's "arg2"
+  printf("%llu,%s,%d,%d,%s,kprobe:tcp_sendmsg,%d,,, \n",
+         nsecs, "host", pid, tid, comm, (int)arg2);
+}
+
+/* ===== libc memory API via uprobes (optional) =====
+   Adjust libc path for your distro if needed.
+*/
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:malloc,
+uprobe:/usr/lib64/libc.so.6:malloc
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:malloc,%d,,, \n",
+         nsecs, "host", pid, tid, comm, (int)arg0);
+}
+
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:malloc,
+uretprobe:/usr/lib64/libc.so.6:malloc
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uretprobe:malloc,,,%p,\n",
+         nsecs, "host", pid, tid, comm, retval);
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:free,
+uprobe:/usr/lib64/libc.so.6:free
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:free,%p,,, \n",
+         nsecs, "host", pid, tid, comm, (void*)arg0);
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:realloc,
+uprobe:/usr/lib64/libc.so.6:realloc
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:realloc,%p,%d,,\n",
+         nsecs, "host", pid, tid, comm, (void*)arg0, (int)arg1);
+}
+
+/* ===== CUDA / NCCL uprobes (optional; fire only if libs/symbols exist) =====
+   Adjust paths/sonames as needed for your system.
+*/
+uprobe:/usr/lib/x86_64-linux-gnu/libcudart.so.11.0:cudaMemcpy,
+uprobe:/usr/lib64/libcudart.so.11.0:cudaMemcpy
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:cudaMemcpy,%p,%p,%d,\n",
+         nsecs, "host", pid, tid, comm, (void*)arg0, (void*)arg1, (int)arg2);
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuLaunchKernel,
+uprobe:/usr/lib64/libcuda.so.1:cuLaunchKernel
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:cuLaunchKernel,%p,,, \n",
+         nsecs, "host", pid, tid, comm, (void*)arg0);
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libnccl.so.2:ncclAllReduce,
+uprobe:/usr/lib64/libnccl.so.2:ncclAllReduce
+/ match_task() /
+{
+  printf("%llu,%s,%d,%d,%s,uprobe:ncclAllReduce,%p,%p,%d,\n",
+         nsecs, "host", pid, tid, comm, (void*)arg0, (void*)arg1, (int)arg2);
+}

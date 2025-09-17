@@ -14,10 +14,14 @@ set -euo pipefail
 SPARK_SUBMIT="/opt/spark/bin/spark-submit"
 MASTER_URL="${MASTER_URL:-spark://192.168.60.81:7077}"
 
-TRACE_ROOT="${TRACE_ROOT:-$HOME/spark_traces}"
+TRACE_ROOT="${TRACE_ROOT:-spark_traces}"
 TRACER="${TRACER:-$(dirname "$0")/pooling_traces.py}"  # path to your tracer script
 TRACE_INTERVAL="${TRACE_INTERVAL:-0.2}"
 TRACE_DEBUG="${TRACE_DEBUG:-0}"  # 1 prints rows to tracer.log as well
+
+EVENT_TRACER="${EVENT_TRACER:-$(dirname "$0")/event_tracer.bt}"
+EVENT_COMM_FILTER="${EVENT_COMM_FILTER:-java|spark|python3}"   # bpftrace regex
+EVENT_TRACER_BIN="${EVENT_TRACER_BIN:-bpftrace}"               # override if needed
 
 DO_BUILD=0
 INCLUDE_SGD=0
@@ -121,6 +125,32 @@ find_jar() {
   echo "$jar"
 }
 
+start_event_tracer() {
+  local klass="$1" outcsv="$2" log="$3"
+  : > "$log" || true
+  if ! command -v "$EVENT_TRACER_BIN" >/dev/null 2>&1; then
+    echo "[evt] WARN: bpftrace not found; skipping event tracer" | tee -a "$log"
+    echo ""
+    return 0
+  fi
+  if command -v setsid >/dev/null 2>&1; then
+    setsid sudo "$EVENT_TRACER_BIN" -D TARGET_COMM="\"$EVENT_COMM_FILTER\"" "$EVENT_TRACER" >"$outcsv" 2>>"$log" &
+  else
+    nohup sudo "$EVENT_TRACER_BIN" -D TARGET_COMM="\"$EVENT_COMM_FILTER\"" "$EVENT_TRACER" >"$outcsv" 2>>"$log" &
+  fi
+  echo $!
+}
+
+stop_pid_gracefully() {
+  local pid="$1"
+  [[ -z "$pid" || "$pid" = "0" ]] && return 0
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" || true
+    for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+}
+
 run_one() {
   local app="$1" subdir="$2" klass="$3"
   echo
@@ -151,9 +181,16 @@ run_one() {
   SPARK_ERR="${RUN_DIR}/spark.err"
   META_JSON="${RUN_DIR}/run.json"
 
+  EVENT_CSV="${RUN_DIR}/event_trace.csv"
+  EVENT_LOG="${RUN_DIR}/event_tracer.log"
+
   echo "[${app}] starting tracer (grep '${klass}') -> ${TRACE_CSV}"
   local TRACER_PID; TRACER_PID="$(start_tracer "$klass" "$TRACE_CSV" "$TRACER_LOG")"
   echo "[${app}] tracer_pid=${TRACER_PID} (log: ${TRACER_LOG})"
+
+  echo "[${app}] starting eBPF event tracer -> ${EVENT_CSV}"
+  local EVENT_PID; EVENT_PID="$(start_event_tracer "$klass" "$EVENT_CSV" "$EVENT_LOG")"
+  [[ -n "$EVENT_PID" ]] && echo "[${app}] event_tracer_pid=${EVENT_PID} (log: ${EVENT_LOG})"
 
   local START_UTC; START_UTC="$(now_utc)"
   local EXIT=0
@@ -168,26 +205,17 @@ run_one() {
   local END_UTC; END_UTC="$(now_utc)"
   echo "[${app}] spark exit code: $EXIT"
 
-  # Stop tracer gracefully
-  if kill -0 "$TRACER_PID" 2>/dev/null; then
-    echo "[${app}] stopping tracer (pid $TRACER_PID)"
-    kill -INT "$TRACER_PID" || true
-    for _ in {1..50}; do
-      kill -0 "$TRACER_PID" 2>/dev/null || break
-      sleep 0.1
-    done
-    kill -KILL "$TRACER_PID" 2>/dev/null || true
-  fi
+  # stop both tracers
+  echo "[${app}] stopping tracers"
+  stop_pid_gracefully "$TRACER_PID"
+  stop_pid_gracefully "$EVENT_PID"
 
   write_metadata "$META_JSON" "$app" "$klass" "$START_UTC" "$END_UTC" "$EXIT" \
-                 "$SPARK_SUBMIT --class $klass --master $MASTER_URL $jar" "$jar"
+    "$SPARK_SUBMIT --class $klass --master $MASTER_URL $jar" "$jar"
 
-  if command -v gzip >/dev/null 2>&1; then
-    gzip -f -9 "$SPARK_OUT" "$SPARK_ERR" || true
-  fi
-
-  echo "[${app}] artifacts -> $RUN_DIR"
-}
+    if command -v gzip >/dev/null 2>&1; then gzip -f -9 "$SPARK_OUT" "$SPARK_ERR" || true; fi
+    echo "[${app}] artifacts -> $RUN_DIR"
+  }
 
 # --------- Build run list (skip SGD unless requested) ----------
 RUN_LIST=()
