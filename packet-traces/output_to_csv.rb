@@ -28,5 +28,5 @@ def parse_tcpdump(input_file, output_file)
 end
 
 if __FILE__ == $0
-  parse_tcpdump("packets.log", "output.csv")
+  parse_tcpdump("packets.log", "packets.csv")
 end
