@@ -14,7 +14,7 @@ set -euo pipefail
 SPARK_SUBMIT="/opt/spark/bin/spark-submit"
 MASTER_URL="${MASTER_URL:-spark://192.168.60.81:7077}"
 
-TRACE_ROOT="${TRACE_ROOT:-$HOME/spark_traces}"
+TRACE_ROOT="/mnt/extradisk/spark_traces"
 TRACER="${TRACER:-$(dirname "$0")/pooling_traces.py}"  # path to your tracer script
 TRACE_INTERVAL="${TRACE_INTERVAL:-0.2}"
 TRACE_DEBUG="${TRACE_DEBUG:-0}"  # 1 prints rows to tracer.log as well
