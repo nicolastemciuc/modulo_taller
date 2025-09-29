@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-import argparse, csv, os, sys, time, socket, signal, glob, re
+import argparse, csv, os, sys, time, socket, signal, glob, re, struct
+from typing import List, Dict, Tuple
 
 HOST = socket.gethostname()
 SELF = os.getpid()
 
+# -----------------------------
+# Output fields (original + 6-tuple + extras)
+# -----------------------------
 FIELDS = [
     # timing & identity
     "ts_ns","host","pid","ppid","comm","state",
@@ -27,8 +31,16 @@ FIELDS = [
     "psi_io_full_avg10","psi_io_full_avg60","psi_io_full_avg300",
     # diskstats aggregate (system)
     "disk_read_ios","disk_read_sectors","disk_write_ios","disk_write_sectors",
-    "disk_inflight","disk_io_ticks"
+    "disk_inflight","disk_io_ticks",
+    # === socket attribution (per-row, one per socket) ===
+    "proto", "src_ip", "src_port", "dst_ip", "dst_port", "sock_inode", "tcp_state",
+    # === flow gap ===
+    "flow_gap_ms"
 ]
+
+# Track last-seen timestamp per 6-tuple key to compute gap
+# Key: (proto, src_ip, src_port, dst_ip, dst_port)
+_last_seen_ns: Dict[Tuple[str,str,int,str,int], int] = {}
 
 stop = False
 def handle_sigint(signum, frame):
@@ -38,6 +50,9 @@ def handle_sigint(signum, frame):
 signal.signal(signal.SIGINT, handle_sigint)
 signal.signal(signal.SIGTERM, handle_sigint)
 
+# -----------------------------
+# /proc helpers
+# -----------------------------
 def read_first_line(path):
     try:
         with open(path, "r") as f:
@@ -207,7 +222,7 @@ def parse_spark_tags(pid):
     return spark_class or "", executor_id or "", jar or ""
 
 def list_pids_by_grep(substr):
-    pids = []
+    pids: List[int] = []
     for path in glob.glob("/proc/[0-9]*/cmdline"):
         pid = int(path.split("/")[2])
         if pid == SELF:
@@ -221,7 +236,103 @@ def list_pids_by_grep(substr):
             continue
     return sorted(set(pids))
 
-def trace_loop(pids, interval, out_path, debug=False):
+# -----------------------------
+# Socket table parsing (/proc/<pid>/net/*)
+# -----------------------------
+_TCP_STATE_MAP = {
+    "01":"ESTABLISHED", "02":"SYN_SENT", "03":"SYN_RECV", "04":"FIN_WAIT1",
+    "05":"FIN_WAIT2", "06":"TIME_WAIT", "07":"CLOSE", "08":"CLOSE_WAIT",
+    "09":"LAST_ACK", "0A":"LISTEN", "0B":"CLOSING", "0C":"NEW_SYN_RECV"
+}
+
+def _hex_to_ipv4(h: str) -> str:
+    # /proc/net/tcp uses little-endian for the 32-bit address field
+    # h example: '0100007F' -> 127.0.0.1
+    try:
+        n = int(h, 16)
+        return socket.inet_ntoa(struct.pack("<I", n))
+    except Exception:
+        return "0.0.0.0"
+
+def _swap_32le_words(b: bytes) -> bytes:
+    # swap endianness per 32-bit word (tcp6 uses LE words)
+    if len(b) != 16: return b
+    out = bytearray()
+    for i in range(0,16,4):
+        out += b[i:i+4][::-1]
+    return bytes(out)
+
+def _hex_to_ipv6(h: str) -> str:
+    # /proc/net/tcp6: 32 hex chars (16 bytes) in LE 32-bit words
+    try:
+        raw = bytes.fromhex(h)
+        be = _swap_32le_words(raw)
+        return socket.inet_ntop(socket.AF_INET6, be)
+    except Exception:
+        return "::"
+
+def _parse_ipport(ip_hex: str, port_hex: str, ipv6: bool=False):
+    ip = _hex_to_ipv6(ip_hex) if ipv6 else _hex_to_ipv4(ip_hex)
+    port = int(port_hex, 16)
+    return ip, port
+
+def _read_pid_sockets(pid: int, proto: str):
+    """
+    proto in {"tcp","tcp6","udp","udp6"}
+    Returns list of dicts with keys:
+      proto, ipv, state, inode, l_ip, l_port, r_ip, r_port
+    """
+    path = f"/proc/{pid}/net/{proto}"
+    conns = []
+    try:
+        with open(path, "r") as f:
+            next(f)  # header
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 10:
+                    continue
+                laddr_hex, lport_hex = parts[1].split(":")
+                raddr_hex, rport_hex = parts[2].split(":")
+                state = parts[3]
+                inode = parts[9]
+                ipv6 = proto.endswith("6")
+                lip, lpt = _parse_ipport(laddr_hex, lport_hex, ipv6)
+                rip, rpt = _parse_ipport(raddr_hex, rport_hex, ipv6)
+                conns.append({
+                    "proto": "tcp" if "tcp" in proto else "udp",
+                    "ipv": 6 if ipv6 else 4,
+                    "state": state.upper(),
+                    "inode": int(inode) if inode.isdigit() else -1,
+                    "l_ip": lip, "l_port": lpt,
+                    "r_ip": rip, "r_port": rpt,
+                })
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return conns
+
+def list_pid_flows(pid: int):
+    flows = []
+    for proto in ("tcp","tcp6","udp","udp6"):
+        flows.extend(_read_pid_sockets(pid, proto))
+    return flows
+
+# -----------------------------
+# Flow gap computation
+# -----------------------------
+def compute_flow_gap_ms(ts_ns: int, key: Tuple[str,str,int,str,int]) -> float:
+    """Return milliseconds since last time we saw this 6-tuple; 0.0 if first time."""
+    prev = _last_seen_ns.get(key)
+    _last_seen_ns[key] = ts_ns
+    if prev is None:
+        return 0.0
+    return (ts_ns - prev) / 1e6
+
+# -----------------------------
+# Main trace loop
+# -----------------------------
+def trace_loop(pids, interval, out_path, tcp_established_only=False, emit_row_when_no_flow=True, debug=False):
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(FIELDS)
@@ -246,7 +357,7 @@ def trace_loop(pids, interval, out_path, debug=False):
                     rchar, wchar, rbytes, wbytes, cwb = read_proc_io(pid)
                     spark_class, executor_id, jar = parse_spark_tags(pid)
 
-                    row = [
+                    base = [
                         ts_ns, HOST, pid, ppid, comm, state,
                         utime, stime, nice, prio, nthreads,
                         vmsize_kb, vmrss_kb,
@@ -257,21 +368,56 @@ def trace_loop(pids, interval, out_path, debug=False):
                         *psi_vals,
                         *disk_vals
                     ]
-                    w.writerow(row)
-                    if debug:
-                        print(",".join(str(x) for x in row))
+
+                    flows = list_pid_flows(pid)
+
+                    wrote_any = False
+                    for c in flows:
+                        if c["proto"] == "tcp" and tcp_established_only and c["state"] != "01":
+                            # Only include ESTABLISHED if flag is set
+                            continue
+                        proto_str = f'{c["proto"]}{c["ipv"]}'
+                        tup_key = (proto_str, c["l_ip"], c["l_port"], c["r_ip"], c["r_port"])
+                        gap_ms = compute_flow_gap_ms(ts_ns, tup_key)
+                        row = base + [
+                            proto_str,
+                            c["l_ip"], c["l_port"], c["r_ip"], c["r_port"],
+                            c["inode"],
+                            _TCP_STATE_MAP.get(c["state"], c["state"]),
+                            f"{gap_ms:.3f}"
+                        ]
+                        w.writerow(row)
+                        wrote_any = True
+                        if debug:
+                            print(",".join(str(x) for x in row))
+
+                    if not wrote_any and emit_row_when_no_flow:
+                        # Keep time series continuity even when the process has no visible sockets
+                        row = base + ["", "", "", "", "", "", "", "0.000"]
+                        w.writerow(row)
+                        if debug:
+                            print(",".join(str(x) for x in row))
+
                 except Exception:
+                    # Best-effort: skip PID if any read fails mid-interval
                     continue
+
             f.flush()
             time.sleep(interval)
 
 def main():
-    ap = argparse.ArgumentParser(description="Lightweight /proc trace collector (+PSI, diskstats, Spark tags)")
+    ap = argparse.ArgumentParser(
+        description="Lightweight /proc trace collector (+PSI, diskstats, Spark tags) with per-socket 6-tuple attribution"
+    )
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--pid", type=int, help="PID to trace")
     g.add_argument("--grep", type=str, help="Substring to match in /proc/*/cmdline to trace multiple PIDs")
     ap.add_argument("--interval", type=float, default=0.25, help="Polling interval in seconds (e.g., 0.1)")
     ap.add_argument("--out", type=str, default="proc_trace.csv", help="Output CSV path")
+    ap.add_argument("--tcp-established-only", action="store_true",
+                    help="If set, only include TCP sockets in ESTABLISHED state")
+    ap.add_argument("--no-empty-rows", action="store_true",
+                    help="If set, do not emit a row when a PID has no sockets in the current interval")
     ap.add_argument("-d","--debug", action="store_true", help="Also print each collected row to stdout")
     args = ap.parse_args()
 
@@ -282,8 +428,17 @@ def main():
             return list_pids_by_grep(args.grep)
         pids = discover
 
+    emit_row_when_no_flow = not args.no_empty_rows
+
     print(f"[trace] writing to {args.out} (interval={args.interval}s). Press Ctrl+C to stop.", file=sys.stderr)
-    trace_loop(pids, args.interval, args.out, debug=args.debug)
+    trace_loop(
+        pids,
+        args.interval,
+        args.out,
+        tcp_established_only=args.tcp_established_only,
+        emit_row_when_no_flow=emit_row_when_no_flow,
+        debug=args.debug
+    )
 
 if __name__ == "__main__":
     main()
