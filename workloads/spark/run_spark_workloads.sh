@@ -5,6 +5,8 @@ SPARK_SUBMIT="${SPARK_SUBMIT:-/opt/spark/bin/spark-submit}"
 MASTER_URL="${MASTER_URL:-spark://192.168.60.81:7077}"
 DEPLOY_MODE="${DEPLOY_MODE:-client}"
 TRACE_ROOT="${TRACE_ROOT:-/mnt/extradisk/spark_traces}"
+# Stable place that lists all current driver PIDs (newline-separated)
+PID_FILE="${PID_FILE:-$TRACE_ROOT/latest/driver.pid}"
 
 # Optional slow mode parameters
 APP_ARGS_KMEANS="${APP_ARGS_KMEANS:-"/mnt/datasets/kmeans/t10k-images.idx3-ubyte 120 10 128 8 3"}"
@@ -26,7 +28,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) DO_BUILD=1; shift;;
     --no-wait) WAIT_FOR_COMPLETION=0; shift;;
-    --slow) 
+    --slow)
       EXECUTOR_CORES=1
       TOTAL_EXECUTOR_CORES=1
       APP_ARGS_KMEANS="/mnt/datasets/kmeans/t10k-images.idx3-ubyte 160 10 256 12 5"
@@ -70,6 +72,11 @@ find_jar() {
   find "$dir/target" -type f -name "*.jar" ! -name "*sources.jar" ! -name "*javadoc.jar" | sort | tail -n1
 }
 
+# --- Prepare the stable "latest" space (overwrite PID list for this run) ---
+mkdir -p "$(dirname "$PID_FILE")"
+: > "$PID_FILE"                        # overwrite the PID file at the beginning of each run of this script
+printf '%s\n' "$TRACE_ROOT" > "$(dirname "$PID_FILE")/root"  # optional small breadcrumbs
+
 run_one() {
   local app="$1" subdir="$2" klass="$3"
   echo "===== [$app] Run ====="
@@ -101,6 +108,10 @@ run_one() {
   local DRIVER_PID=$!
   echo "$DRIVER_PID" >"$RUN_DIR/driver.pid"
   echo "PID=$DRIVER_PID"
+
+  # Append this PID to the stable list (newline-separated)
+  printf '%s\n' "$DRIVER_PID" >> "$PID_FILE"
+  printf '%s\n' "$RUN_DIR" > "$(dirname "$PID_FILE")/run_dir_${app}"
 
   if [[ "$WAIT_FOR_COMPLETION" -eq 1 ]]; then
     wait "$DRIVER_PID"; EXIT=$?
