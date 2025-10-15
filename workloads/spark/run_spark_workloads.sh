@@ -2,31 +2,30 @@
 set -euo pipefail
 
 # ============================================================
-# Run Spark workloads (driver host only) and collect metrics
+# Run Spark workloads (driver host only) and expose driver PID
 # - Default: runs KMeans + PageRank (SGD disabled by default)
 # - Use --build to run `sbt package` first
 # - Use --include-sgd to also run the SGD workload
-# - Saves under: ~/spark_traces/<app>/<UTC timestamp>/
-# - Assumes pooling_traces.py already exists (no auto-creation)
+# - Creates: ~/spark_traces/<app>/<UTC timestamp>/
+# - Writes the driver PID to: <run_dir>/driver.pid
+# - Echoes "PID=<pid>" to STDOUT (so another script can consume it)
 # ============================================================
 
 # --------- CONFIG ----------
-SPARK_SUBMIT="/opt/spark/bin/spark-submit"
+SPARK_SUBMIT="${SPARK_SUBMIT:-/opt/spark/bin/spark-submit}"
 MASTER_URL="${MASTER_URL:-spark://192.168.60.81:7077}"
+DEPLOY_MODE="${DEPLOY_MODE:-client}"   # ensure driver runs on this host
 
-TRACE_ROOT="/mnt/extradisk/spark_traces"
-TRACER="${TRACER:-$(dirname "$0")/pooling_traces.py}"  # path to your tracer script
-TRACE_INTERVAL="${TRACE_INTERVAL:-0.2}"
-TRACE_DEBUG="${TRACE_DEBUG:-0}"  # 1 prints rows to tracer.log as well
+TRACE_ROOT="${TRACE_ROOT:-/mnt/extradisk/spark_traces}"
 
 DO_BUILD=0
 INCLUDE_SGD=0
 
 # Projects: <name> <subdir> <class>
 declare -a PROJECTS=(
-  "kmeans kmeans org.apache.spark.examples.mllib.KMeansExample"
-  "pagerank page-rank PageRankExample"
-  # "sgd sgd org.apache.spark.examples.mllib.SVMWithSGDExample"  # disabled by default
+  "kmeans    kmeans     org.apache.spark.examples.mllib.KMeansExample"
+  "pagerank  page-rank  PageRankExample"
+  # "sgd      sgd        org.apache.spark.examples.mllib.SVMWithSGDExample"  # opt-in
 )
 
 # --------- CLI ----------
@@ -37,26 +36,28 @@ Usage: $(basename "$0") [options]
 Options:
   --build            Run 'sbt package' for each project before submitting
   --include-sgd      Also run the 'sgd' workload
+  --no-wait          Don't wait for Spark to finish (script exits after printing PID)
   -h, --help         Show this help
 
 Environment (optional):
-  MASTER_URL         Spark master URL (default: $MASTER_URL)
-  TRACE_ROOT         Trace output root (default: $TRACE_ROOT)
-  TRACER             Path to pooling_traces.py (default: $TRACER)
-  TRACE_INTERVAL     Tracer polling interval seconds (default: $TRACE_INTERVAL)
-  TRACE_DEBUG        1 to echo CSV rows into log (default: $TRACE_DEBUG)
+  SPARK_SUBMIT       Path to spark-submit (default: $SPARK_SUBMIT)
+  MASTER_URL         Spark master URL      (default: $MASTER_URL)
+  DEPLOY_MODE        client|cluster        (default: $DEPLOY_MODE; 'client' recommended)
+  TRACE_ROOT         Output root directory (default: $TRACE_ROOT)
 
 Examples:
-  ./run_workloads.sh
-  ./run_workloads.sh --build
-  ./run_workloads.sh --include-sgd
+  ./run_spark_only.sh
+  ./run_spark_only.sh --build --include-sgd
+  ./run_spark_only.sh --no-wait        # starts Spark in background, prints PID, exits
 EOF
 }
 
+WAIT_FOR_COMPLETION=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) DO_BUILD=1; shift;;
     --include-sgd) INCLUDE_SGD=1; shift;;
+    --no-wait) WAIT_FOR_COMPLETION=0; shift;;
     -h|--help) usage; exit 0;;
     *) echo "Unknown option: $1"; usage; exit 1;;
   esac
@@ -77,7 +78,7 @@ snap_sysinfo() {
 }
 
 write_metadata() {
-  local file="$1" app="$2" klass="$3" start="$4" end="$5" exitcode="$6" cmd="$7" jar="$8"
+  local file="$1" app="$2" klass="$3" start="$4" end="$5" exitcode="$6" cmd="$7" jar="$8" pid="$9"
   {
     echo "{"
     echo "  \"host\": \"$(hostname)\","
@@ -85,29 +86,14 @@ write_metadata() {
     echo "  \"spark_class\": \"${klass}\","
     echo "  \"jar\": \"${jar}\","
     echo "  \"master\": \"${MASTER_URL}\","
+    echo "  \"deploy_mode\": \"${DEPLOY_MODE}\","
+    echo "  \"driver_pid\": ${pid},"
     echo "  \"start_utc\": \"${start}\","
     echo "  \"end_utc\": \"${end}\","
     echo "  \"exit_code\": ${exitcode},"
     echo "  \"spark_cmd\": \"$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/\"/\\"/g')\""
     echo "}"
   } > "$file"
-}
-
-# Start tracer fully detached; log stdout+stderr to a file; return PID
-start_tracer() {
-  local klass="$1" outcsv="$2" log="$3"
-  local debug_flag=()
-  [[ "$TRACE_DEBUG" == "1" ]] && debug_flag=(-d)
-
-  # ensure log file exists
-  : > "$log" || true
-
-  if command -v setsid >/dev/null 2>&1; then
-    setsid python3 "$TRACER" --grep "$klass" --interval "$TRACE_INTERVAL" --out "$outcsv" "${debug_flag[@]}" >>"$log" 2>&1 &
-  else
-    nohup  python3 "$TRACER" --grep "$klass" --interval "$TRACE_INTERVAL" --out "$outcsv" "${debug_flag[@]}" >>"$log" 2>&1 &
-  fi
-  echo $!
 }
 
 find_jar() {
@@ -132,55 +118,57 @@ run_one() {
     (cd "$subdir" && sbt -no-colors -batch package)
   fi
 
+  need "$SPARK_SUBMIT"
   local jar; jar="$(find_jar "$subdir")"
   echo "[${app}] jar => $jar"
 
-  need python3
-  [[ -x "$SPARK_SUBMIT" ]] || die "spark-submit not found at $SPARK_SUBMIT"
   mkdir -p "$TRACE_ROOT"
-
-  local RUN_TS RUN_DIR TRACE_CSV TRACER_LOG SPARK_OUT SPARK_ERR META_JSON
+  local RUN_TS RUN_DIR SPARK_OUT SPARK_ERR META_JSON PID_FILE
   RUN_TS="$(ts_dir)"
   RUN_DIR="${TRACE_ROOT}/${app}/${RUN_TS}"
   mkdir -p "$RUN_DIR"
 
   snap_sysinfo "$RUN_DIR"
-  TRACE_CSV="${RUN_DIR}/trace.csv"
-  TRACER_LOG="${RUN_DIR}/tracer.log"
   SPARK_OUT="${RUN_DIR}/spark.out"
   SPARK_ERR="${RUN_DIR}/spark.err"
   META_JSON="${RUN_DIR}/run.json"
+  PID_FILE="${RUN_DIR}/driver.pid"
 
-  echo "[${app}] starting tracer (grep '${klass}') -> ${TRACE_CSV}"
-  local TRACER_PID; TRACER_PID="$(start_tracer "$klass" "$TRACE_CSV" "$TRACER_LOG")"
-  echo "[${app}] tracer_pid=${TRACER_PID} (log: ${TRACER_LOG})"
+  local CMD
+  CMD="$SPARK_SUBMIT --class \"$klass\" --master \"$MASTER_URL\" --deploy-mode \"$DEPLOY_MODE\" \"$jar\""
 
+  echo "[${app}] launching spark-submit (mode=${DEPLOY_MODE}) ..."
   local START_UTC; START_UTC="$(now_utc)"
-  local EXIT=0
-
-  echo "[${app}] launching spark-submit ..."
   set +e
-  "$SPARK_SUBMIT" --class "$klass" --master "$MASTER_URL" "$jar" \
-    > >(tee -a "$SPARK_OUT") 2> >(tee -a "$SPARK_ERR" >&2)
-  EXIT=$?
-  set -e
 
-  local END_UTC; END_UTC="$(now_utc)"
-  echo "[${app}] spark exit code: $EXIT"
+  if [[ "$WAIT_FOR_COMPLETION" -eq 1 ]]; then
+    # Foreground (PID belongs to Java driver process)
+    bash -c "$CMD" \
+      > >(tee -a \"$SPARK_OUT\") 2> >(tee -a \"$SPARK_ERR\" >&2) &
+    DRIVER_PID=$!
+    echo "$DRIVER_PID" > "$PID_FILE"
+    echo "PID=$DRIVER_PID"   # <- easy to capture by another script
+    echo "[${app}] driver_pid=${DRIVER_PID} (logs in $RUN_DIR)"
 
-  # Stop tracer gracefully
-  if kill -0 "$TRACER_PID" 2>/dev/null; then
-    echo "[${app}] stopping tracer (pid $TRACER_PID)"
-    kill -INT "$TRACER_PID" || true
-    for _ in {1..50}; do
-      kill -0 "$TRACER_PID" 2>/dev/null || break
-      sleep 0.1
-    done
-    kill -KILL "$TRACER_PID" 2>/dev/null || true
+    # Wait for Spark to finish
+    wait "$DRIVER_PID"
+    EXIT=$?
+  else
+    # Fully background; script exits after printing PID
+    nohup bash -c "$CMD" \
+      > >(tee -a \"$SPARK_OUT\") 2> >(tee -a \"$SPARK_ERR\" >&2) &
+    DRIVER_PID=$!
+    echo "$DRIVER_PID" > "$PID_FILE"
+    echo "PID=$DRIVER_PID"
+    echo "[${app}] started in background (driver_pid=${DRIVER_PID})."
+    EXIT=0
   fi
 
-  write_metadata "$META_JSON" "$app" "$klass" "$START_UTC" "$END_UTC" "$EXIT" \
-                 "$SPARK_SUBMIT --class $klass --master $MASTER_URL $jar" "$jar"
+  set -e
+  local END_UTC; END_UTC="$(now_utc)"
+
+  write_metadata "$META_JSON" "$app" "$klass" "$START_UTC" "$END_UTC" "${EXIT:-0}" \
+                 "$SPARK_SUBMIT --class $klass --master $MASTER_URL --deploy-mode $DEPLOY_MODE $jar" "$jar" "$DRIVER_PID"
 
   if command -v gzip >/dev/null 2>&1; then
     gzip -f -9 "$SPARK_OUT" "$SPARK_ERR" || true
@@ -200,7 +188,6 @@ done
 
 # --------- Preflight & Execute ----------
 need "$SPARK_SUBMIT"
-[[ -f "$TRACER" ]] || die "Tracer not found at: $TRACER"
 mkdir -p "$TRACE_ROOT"
 
 for row in "${RUN_LIST[@]}"; do
@@ -209,5 +196,5 @@ for row in "${RUN_LIST[@]}"; do
 done
 
 echo
-echo "All selected workloads finished ✔"
+echo "All selected workloads launched ✔"
 echo "Root folder: $TRACE_ROOT"
