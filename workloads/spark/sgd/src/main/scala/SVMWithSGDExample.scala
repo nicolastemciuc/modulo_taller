@@ -22,12 +22,12 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.util.MLUtils
 
 object SVMWithSGDExample {
-
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName("SVMWithSGDExample")
     val sc = new SparkContext(conf)
 
-    val data = MLUtils.loadLibSVMFile(sc, "s3://morteza-files-ca/criteo.kaggle2014.svm/test.txt.svm")
+    // If test.txt is in LibSVM format, just load it via MLUtils from local FS:
+    val data = MLUtils.loadLibSVMFile(sc, "file:///mnt/extradisk/test.txt")
 
     val splits = data.randomSplit(Array(0.8, 0.2), seed = 11L)
     val training = splits(0).cache()
@@ -45,7 +45,6 @@ object SVMWithSGDExample {
 
     val metrics = new BinaryClassificationMetrics(scoreAndLabels)
     val auROC = metrics.areaUnderROC()
-
     println(s"Area under ROC = $auROC")
 
     sc.stop()
