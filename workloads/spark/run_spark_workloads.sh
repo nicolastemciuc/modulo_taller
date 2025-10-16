@@ -9,6 +9,7 @@ TRACE_ROOT="${TRACE_ROOT:-/mnt/extradisk/spark_traces}"
 # Optional slow mode parameters
 APP_ARGS_KMEANS="${APP_ARGS_KMEANS:-"/mnt/datasets/kmeans/t10k-images.idx3-ubyte 120 10 128 8 3"}"
 APP_ARGS_PAGERANK="${APP_ARGS_PAGERANK:-"/mnt/datasets/twitch_gamers/large_twitch_edges.txt 80 512 3"}"
+APP_ARGS_SVMSGD="${APP_ARGS_SVMSGD:-""}"   # usually empty; dataset path is in code
 
 EXECUTOR_CORES="${EXECUTOR_CORES:-1}"
 TOTAL_EXECUTOR_CORES="${TOTAL_EXECUTOR_CORES:-3}"
@@ -17,6 +18,7 @@ EXECUTOR_MEMORY="${EXECUTOR_MEMORY:-2g}"
 declare -a PROJECTS=(
   "kmeans    kmeans     org.apache.spark.examples.mllib.KMeansExample"
   "pagerank  page-rank  PageRankExample"
+  "sgd       sgd        org.apache.spark.examples.mllib.SVMWithSGDExample"
 )
 
 WAIT_FOR_COMPLETION=1
@@ -76,14 +78,16 @@ run_one() {
   [[ "$DO_BUILD" -eq 1 ]] && (cd "$subdir" && sbt -no-colors -batch package)
   need "$SPARK_SUBMIT"
   local jar; jar="$(find_jar "$subdir")"
+  [[ -n "${jar:-}" ]] || die "JAR not found under $subdir/target (run with --build?)"
   mkdir -p "$TRACE_ROOT/$app"
   local RUN_DIR="$TRACE_ROOT/$app/$(ts_dir)"
   mkdir -p "$RUN_DIR"; snap_sysinfo "$RUN_DIR"
 
   local APP_ARGS=""
   case "$app" in
-    kmeans) APP_ARGS="$APP_ARGS_KMEANS" ;;
+    kmeans)   APP_ARGS="$APP_ARGS_KMEANS" ;;
     pagerank) APP_ARGS="$APP_ARGS_PAGERANK" ;;
+    svmsgd)   APP_ARGS="$APP_ARGS_SVMSGD" ;;  # usually empty
   esac
 
   local CMD="$SPARK_SUBMIT \
