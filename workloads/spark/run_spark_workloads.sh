@@ -23,19 +23,22 @@ declare -a PROJECTS=(
 
 WAIT_FOR_COMPLETION=1
 DO_BUILD=0
+SHOW_LOGS=0   # <--- NEW FLAG
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) DO_BUILD=1; shift;;
     --no-wait) WAIT_FOR_COMPLETION=0; shift;;
-    --slow) 
+    --slow)
       EXECUTOR_CORES=1
       TOTAL_EXECUTOR_CORES=1
       APP_ARGS_KMEANS="/mnt/datasets/kmeans/t10k-images.idx3-ubyte 160 10 256 12 5"
       APP_ARGS_PAGERANK="/mnt/datasets/twitch_gamers/large_twitch_edges.txt 120 1024 5"
       shift;;
+    --logs|-l) SHOW_LOGS=1; shift;;   # <--- NEW FLAG
     -h|--help)
-      echo "Usage: $0 [--build] [--no-wait] [--slow]"; exit 0;;
+      echo "Usage: $0 [--build] [--no-wait] [--slow] [--logs]"
+      exit 0;;
     *) echo "Unknown option: $1"; exit 1;;
   esac
 done
@@ -79,6 +82,7 @@ run_one() {
   need "$SPARK_SUBMIT"
   local jar; jar="$(find_jar "$subdir")"
   [[ -n "${jar:-}" ]] || die "JAR not found under $subdir/target (run with --build?)"
+
   mkdir -p "$TRACE_ROOT/$app"
   local RUN_DIR="$TRACE_ROOT/$app/$(ts_dir)"
   mkdir -p "$RUN_DIR"; snap_sysinfo "$RUN_DIR"
@@ -106,10 +110,20 @@ run_one() {
   echo "$DRIVER_PID" >"$RUN_DIR/driver.pid"
   echo "PID=$DRIVER_PID"
 
+  if [[ "$SHOW_LOGS" -eq 1 ]]; then
+    echo "[${app}] showing live logs (Ctrl+C to stop viewing, job keeps running)..."
+    tail -f "$RUN_DIR/spark.out" &
+    local TAIL_PID=$!
+  fi
+
   if [[ "$WAIT_FOR_COMPLETION" -eq 1 ]]; then
     wait "$DRIVER_PID"; EXIT=$?
   else
     EXIT=0
+  fi
+
+  if [[ "$SHOW_LOGS" -eq 1 ]]; then
+    kill "$TAIL_PID" >/dev/null 2>&1 || true
   fi
 
   local END_UTC; END_UTC="$(now_utc)"
