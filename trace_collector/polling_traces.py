@@ -4,9 +4,10 @@ from pathlib import Path
 
 HOST = socket.gethostname()
 SELF = os.getpid()
-DEFAULT_PID_FILE = "/mnt/extradisk/spark_traces/latest/driver.pid"
 
-# Output schema: only the requested metrics (with units in names where relevant)
+DEFAULT_PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
+
+# Output schema (same order as before)
 FIELDS = [
     "ts_ns",
     "host",
@@ -115,9 +116,9 @@ def list_pids_by_grep(substr):
             continue
     return sorted(set(pids))
 
-def read_pid_list(pid_path: str) -> set[int]:
+def read_pid_file(path: str) -> set[int]:
     """Read newline-separated PIDs; ignore blanks/comments."""
-    p = Path(pid_path)
+    p = Path(path)
     if not p.exists():
         return set()
     out = set()
@@ -126,6 +127,20 @@ def read_pid_list(pid_path: str) -> set[int]:
         if not s or s.startswith("#"): continue
         if s.isdigit():
             out.add(int(s))
+    return out
+
+def read_pid_dir(dir_path: str) -> set[int]:
+    """Read all *.pid files in a directory."""
+    out = set()
+    for file in sorted(Path(dir_path).glob("*.pid")):
+        out |= read_pid_file(str(file))
+    return out
+
+def read_pid_glob(pattern: str) -> set[int]:
+    """Read all matching *.pid files from a glob pattern."""
+    out = set()
+    for file in sorted(glob.glob(pattern)):
+        out |= read_pid_file(file)
     return out
 
 def trace_loop(dynamic_sources, interval, out_path, debug=False):
@@ -140,6 +155,7 @@ def trace_loop(dynamic_sources, interval, out_path, debug=False):
 
     seen = set()
 
+    # Overwrite each run
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(FIELDS)
@@ -147,7 +163,7 @@ def trace_loop(dynamic_sources, interval, out_path, debug=False):
             ts_ns = time.time_ns()
             memavailable_b = read_system_memavailable_bytes()
 
-            # Union of all PID sources
+            # Union of all PID sources (dynamic + static)
             current = set()
             for fn in src_funcs:
                 try:
@@ -197,10 +213,14 @@ def main():
                     help="Substring to match in /proc/*/cmdline to trace multiple PIDs (dynamic)")
     ap.add_argument("--pid-file", type=str, default=DEFAULT_PID_FILE,
                     help=f"Path to newline-separated PID file (default: {DEFAULT_PID_FILE})")
+    ap.add_argument("--pid-dir", type=str,
+                    help="Directory containing one or more *.pid files (each file may hold multiple PIDs)")
+    ap.add_argument("--pid-glob", type=str,
+                    help="Glob for *.pid files (e.g., '/mnt/extradisk/workloads/latest/*.pid')")
     ap.add_argument("--interval", type=float, default=0.25,
                     help="Polling interval in seconds (e.g., 0.1)")
-    ap.add_argument("--out", type=str, default="proc_trace.csv",
-                    help="Output CSV path")
+    ap.add_argument("--out", type=str, default="polling_traces.csv",
+                    help="Output CSV path (default: polling_traces.csv)")
     ap.add_argument("-d","--debug", action="store_true",
                     help="Also print each collected row to stdout")
     args = ap.parse_args()
@@ -209,24 +229,40 @@ def main():
 
     # 1) PID file (dynamic)
     def from_pid_file():
-        return read_pid_list(args.pid_file)
+        return read_pid_file(args.pid_file)
     sources.append(from_pid_file)
 
-    # 2) Grep discovery (dynamic)
+    # 2) PID dir (dynamic)
+    if args.pid_dir:
+        def from_pid_dir():
+            return read_pid_dir(args.pid_dir)
+        sources.append(from_pid_dir)
+
+    # 3) PID glob (dynamic)
+    if args.pid_glob:
+        def from_pid_glob():
+            return read_pid_glob(args.pid_glob)
+        sources.append(from_pid_glob)
+
+    # 4) Grep discovery (dynamic)
     if args.grep:
         def from_grep():
             return set(list_pids_by_grep(args.grep))
         sources.append(from_grep)
 
-    # 3) Explicit PIDs (static)
+    # 5) Explicit PIDs (static)
     if args.pid:
         sources.append(set(args.pid))
 
-    print(f"[trace] writing to {args.out} (interval={args.interval}s). "
-          f"Watching pid_file={args.pid_file}"
-          f"{' grep='+args.grep if args.grep else ''}"
-          f"{' pids='+','.join(map(str,args.pid)) if args.pid else ''}",
-          file=sys.stderr)
+    print(
+        f"[trace] writing to {args.out} (interval={args.interval}s). "
+        f"watching pid_file={args.pid_file}"
+        f"{' pid_dir='+args.pid_dir if args.pid_dir else ''}"
+        f"{' pid_glob='+args.pid_glob if args.pid_glob else ''}"
+        f"{' grep='+args.grep if args.grep else ''}"
+        f"{' pids='+','.join(map(str,args.pid)) if args.pid else ''}",
+        file=sys.stderr
+    )
 
     trace_loop(sources, args.interval, args.out, debug=args.debug)
 
