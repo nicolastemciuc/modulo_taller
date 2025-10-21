@@ -6,7 +6,7 @@ MASTER_URL="${MASTER_URL:-spark://192.168.60.81:7077}"
 DEPLOY_MODE="${DEPLOY_MODE:-client}"
 TRACE_ROOT="${TRACE_ROOT:-/mnt/extradisk/spark_traces}"
 # Stable place that lists all current driver PIDs (newline-separated)
-PID_FILE="${PID_FILE:-$TRACE_ROOT/latest/driver.pid}"
+PID_FILE="${PID_FILE:-/mnt/extradisk/workloads/latest/pids.txt}"
 
 # Optional slow mode parameters
 APP_ARGS_KMEANS="${APP_ARGS_KMEANS:-"/mnt/datasets/kmeans/t10k-images.idx3-ubyte 120 10 128 8 3"}"
