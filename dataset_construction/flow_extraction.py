@@ -136,8 +136,8 @@ def extract_flows(input_file: str, output_file: str, flow_gap_us: int, vantage_i
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # FIXED PATH: read from ../packet_traces/packet_traces.csv
-    input_file = os.path.join(script_dir, "../packet_traces/packet_traces.csv")
+    # FIXED PATH: read from ../trace_collector/packet_traces.csv
+    input_file = os.path.join(script_dir, "../trace_collector/packet_traces.csv")
     output_file = os.path.join(script_dir, "flow_extraction.csv")
 
     parser = argparse.ArgumentParser(description="Extract flows (absolute time via ts_ns) for joining with polling traces.")
