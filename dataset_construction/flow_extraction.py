@@ -5,9 +5,9 @@ import os
 from bisect import bisect_right
 from typing import Dict, List, Tuple, Optional
 
-# Flow gaps in microseconds
-FLOW_GAPS = [500, 5000, 10000]
-DEFAULT_IP = "192.168.60.81"  # mirrors Ruby's DEFAULT_IP
+# Default gap in microseconds (single output file now)
+DEFAULT_FLOW_GAP_US = 5000
+DEFAULT_IP = "192.168.60.81"
 
 # Parse "HH:MM:SS.ssssss" -> float seconds
 def parse_time(ts: str) -> float:
@@ -19,7 +19,6 @@ def parse_time(ts: str) -> float:
 def cumulative_at(timeline: Optional[List[Tuple[float, int]]], t: float) -> int:
     if not timeline:
         return 0
-    # timeline sorted by time; find rightmost index with time <= t
     times = [x[0] for x in timeline]
     idx = bisect_right(times, t) - 1
     if idx < 0:
@@ -63,6 +62,7 @@ def extract_flows(input_file: str, output_file: str, flow_gap_us: int, vantage_i
         outgoing_tl.setdefault(e["src"], []).append((e["t"], out_cum[e["src"]]))
         incoming_tl.setdefault(e["dst"], []).append((e["t"], in_cum[e["dst"]]))
 
+    # Overwrite on each run
     with open(output_file, "w", newline="", encoding="utf-8") as f_out:
         writer = csv.writer(f_out)
         writer.writerow([
@@ -128,19 +128,20 @@ def extract_flows(input_file: str, output_file: str, flow_gap_us: int, vantage_i
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    input_file = os.path.join(script_dir, "../trace_collector/packet_traces/packets.csv")
+    input_file = os.path.join(script_dir, "../trace_collector/packet_traces.csv")
+    output_file = os.path.join(script_dir, "flow_extraction.csv")
 
     parser = argparse.ArgumentParser(description="Extract flows from packet CSV.")
     parser.add_argument("--ip", help="Specific vantage IP address (defaults to DEFAULT_IP)", default=DEFAULT_IP)
+    parser.add_argument("--gap-us", type=int, default=DEFAULT_FLOW_GAP_US,
+                        help=f"Flow gap in microseconds (default {DEFAULT_FLOW_GAP_US})")
     args = parser.parse_args()
 
-    vantage_ip = args.ip
-    print(f"Using vantage IP: {vantage_ip or '(per-flow source_ip)'}")
+    print(f"Reading: {input_file}")
+    print(f"Writing: {output_file} (overwrite)")
+    print(f"Vantage IP: {args.ip} | Gap: {args.gap_us}us")
 
-    for gap in FLOW_GAPS:
-        output_file = os.path.join(script_dir, f"flows_{gap}.csv")
-        extract_flows(input_file, output_file, gap, vantage_ip)
-        print(f"Generated {output_file}")
+    extract_flows(input_file, output_file, args.gap_us, args.ip)
 
 if __name__ == "__main__":
     main()
