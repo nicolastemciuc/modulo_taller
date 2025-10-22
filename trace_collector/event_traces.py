@@ -57,7 +57,7 @@ def launch_script(script, pid_str, cfg):
         return None, None
 
 def stop_all(processes, files):
- """
+    """
     Stop all child processes and close their log files.
     """
     for name, proc in processes.items():
@@ -166,7 +166,7 @@ def main():
     pid_list = []
 
     # 1. Read from file if it exists or is provided
-    file_pids = read_pids_from_file(args.pid_file)
+    file_pids = read_pid_file(args.pid_file)
     pid_list.extend(file_pids)
 
     # 2. Add PIDs passed via CLI

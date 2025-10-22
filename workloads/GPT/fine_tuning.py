@@ -7,6 +7,14 @@ from trl import SFTConfig, SFTTrainer
 from peft import LoraConfig
 import torch.distributed as dist
 
+PIDFILE = "/mnt/extradisk/workloads/latest/pids.txt"
+
+# Write current PID, overwriting the file
+with open(PIDFILE, "w") as f:
+    f.write(f"{os.getpid()}\n")
+
+# input("Press Enter to continue...")
+
 # ---------------------- Distributed Training Setup ----------------------
 rank = int(os.environ.get("RANK", 0))
 local_rank = int(os.environ.get("LOCAL_RANK", 0))

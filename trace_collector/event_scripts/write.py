@@ -69,7 +69,7 @@ if args.pid is None:
 
 bpf_text = bpf_text.replace("__PID__", args.pid)
 
-bpf_obj = BPF(text=bpf_text)
+bpf_obj = BPF(text=bpf_text, cflags=["-Wno-macro-redefined"])
 bpf_obj.attach_kprobe(
     event="security_socket_sendmsg",
     fn_name="probe_entry_security_socket_sendmsg"
