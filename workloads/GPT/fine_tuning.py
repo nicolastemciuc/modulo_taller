@@ -1,6 +1,6 @@
 import torch
 import os
-# from datasets import load_from_disk
+
 from LoadDataset import load_quales_train
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from trl import SFTConfig, SFTTrainer
@@ -25,12 +25,14 @@ dist.init_process_group(
 # ------------------------------ Fine-Tuning Setup ------------------------
 # Model and dataset paths
 # MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
-MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 # NEW_MODEL_NAME = "Llama-3.2-1B-Instruct-lora-finetuned"
+
+MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 NEW_MODEL_NAME = "Qwen-2.5-0.5B-Instruct-lora-finetuned"
+
 BASE_FOLDER = "base_folder/"
 FOLDER = f'{BASE_FOLDER}outputs/{NEW_MODEL_NAME}'
-DATASET = "dataset_covid_qa_train.json"
+DATASET = "dataset/dataset_covid_qa_train.json"
 
 # Quantization Config
 quant_config = BitsAndBytesConfig(
