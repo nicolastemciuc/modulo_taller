@@ -9,8 +9,7 @@ import torch.distributed as dist
 
 PIDFILE = "/mnt/extradisk/workloads/latest/pids.txt"
 
-# Write current PID, overwriting the file
-with open(PIDFILE, "w") as f:
+with open(PIDFILE, "a") as f:
     f.write(f"{os.getpid()}\n")
 
 # input("Press Enter to continue...")
