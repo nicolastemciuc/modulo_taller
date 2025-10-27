@@ -1,2 +1,3 @@
 *.csv
 *.log
+workloads/GPT/__pycache__/
