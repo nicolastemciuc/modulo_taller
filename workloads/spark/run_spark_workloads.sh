@@ -9,6 +9,7 @@ PID_FILE="${PID_FILE:-/mnt/extradisk/workloads/latest/pids.txt}"
 
 APP_ARGS_KMEANS="${APP_ARGS_KMEANS:-"/mnt/datasets/kmeans/t10k-images.idx3-ubyte 160 10 256 12 5"}"
 APP_ARGS_PAGERANK="${APP_ARGS_PAGERANK:-"/mnt/datasets/twitch_gamers/large_twitch_edges.txt 120 1024 5"}"
+APP_ARGS_SVM="${APP_ARGS_SVM:-"/mnt/datasets/criteo/test.txt auto 5000 0.1 1.0 512 ,"}"
 
 EXECUTOR_CORES="${EXECUTOR_CORES:-1}"
 TOTAL_EXECUTOR_CORES="${TOTAL_EXECUTOR_CORES:-1}"
@@ -54,9 +55,14 @@ case "$mode" in
     run_one pagerank page-rank PageRankExample "$APP_ARGS_PAGERANK"
     wait
     ;;
+  --svm)
+    run_one svm svm-sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
+    wait
+    ;;
   --parallel|*)
     run_one kmeans   kmeans     org.apache.spark.examples.mllib.KMeansExample "$APP_ARGS_KMEANS"
     run_one pagerank page-rank  PageRankExample                               "$APP_ARGS_PAGERANK"
+    run_one svm svm-sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
     wait
     ;;
 esac
