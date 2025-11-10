@@ -161,6 +161,12 @@ def main():
         help="Sample rate (ns)."
     )
 
+    parser.add_argument(
+        "--script-dir", 
+        type=str, 
+        default=SCRIPT_DIR,
+        help=f"Directory containing event scripts (default: {SCRIPT_DIR})")
+
     args = parser.parse_args()
 
     pid_list = []
