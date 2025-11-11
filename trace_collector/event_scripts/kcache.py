@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-import time
-import sys
-import argparse
+import time, sys, argparse, os
 from bcc import BPF
-from bcc.utils import printb
 
 kstime = time.time_ns() - time.monotonic_ns()
+
+# Detect if the kernel supports ring buffer maps (5.8+)
+def _kernel_supports_ringbuf():
+    rel = os.uname().release
+    rel = rel.split("-", 1)[0]
+    parts = rel.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return True
+
+    return major > 5 or (major == 5 and minor >= 8)
+
+USE_RINGBUF = _kernel_supports_ringbuf()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--pid", default=None)
@@ -17,15 +29,8 @@ bpf_text = """
 #include <linux/mm.h>
 #include <linux/kasan.h>
 
-// memcg_cache_params is a part of kmem_cache, but is not publicly exposed in
-// kernel versions 5.4 to 5.8.  Define an empty struct for it here to allow the
-// bpf program to compile.  It has been completely removed in kernel version
-// 5.9, but it does not hurt to have it here for versions 5.4 to 5.8.
 struct memcg_cache_params {};
 
-// introduce kernel interval slab structure and slab_address() function, solved
-// 'undefined' error for >=5.16. TODO: we should fix this workaround if BCC
-// framework support BTF/CO-RE.
 struct slab {
     unsigned long __page_flags;
 
@@ -123,6 +128,18 @@ int kprobe__kmem_cache_alloc(struct pt_regs *ctx, struct kmem_cache *cachep)
 }
 """
 
+if not USE_RINGBUF:
+    bpf_text = (
+        bpf_text.replace(
+            "BPF_RINGBUF_OUTPUT(events, 1 << 12);",
+            "BPF_PERF_OUTPUT(events);"
+        )
+        .replace(
+            "events.ringbuf_output(&event, sizeof(event), 0);",
+            "events.perf_submit(ctx, &event, sizeof(event));"
+        )
+    )
+
 if args.pid is None:
     print("PID must set")
     exit(0)
@@ -135,11 +152,17 @@ def callback(ctx, data, size):
     print("%d,%d" % (event.timestamp_ns + kstime, event.size))
 
 
-bpf['events'].open_ring_buffer(callback)
+if USE_RINGBUF:
+    bpf["events"].open_ring_buffer(callback)
+else:
+    bpf["events"].open_perf_buffer(callback)
 
 while True:
     try:
-       bpf.ring_buffer_consume()
+        if USE_RINGBUF:
+            bpf.ring_buffer_consume()
+        else:
+            bpf.perf_buffer_poll()
     except KeyboardInterrupt:
         exit()
     sys.stdout.flush()
