@@ -1,5 +1,7 @@
 from bcc import BPF
-import sys
+import sys, os
+
+path_malloc = os.path.realpath("/lib/x86_64-linux-gnu/libc.so.6")
 
 def get_bpf_source():
     return """
@@ -47,7 +49,7 @@ static inline int nccl_alloc_enter(struct pt_regs *ctx, size_t size) {
     struct event event = {};
     event.size = size;
     event.timestamp_ns = bpf_ktime_get_ns();
-    events.ringbuf_output(&event, sizeof(event), 0);
+    events.perf_submit(ctx, &event, sizeof(event));
     return 0;
 }
 
@@ -97,7 +99,7 @@ def attach_probes(bpf,
                   sym, 
                   fn_prefix=None, 
                   can_fail=False, 
-                  name="/usr/lib/x86_64-linux-gnu/libc.so.6", 
+                  name=path_malloc, 
                   pid=-1):
 
     if fn_prefix is None:

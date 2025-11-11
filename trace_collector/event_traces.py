@@ -2,7 +2,7 @@
 import argparse, os, sys, signal, subprocess, time
 
 SELF = os.getpid()
-SCRIPT_DIR = "./event_scripts/"
+SCRIPT_DIR = "./event_scripts_spark/"
 RECORD_DIR = "./event_traces/"
 RATE_NS = "500000"
 DEFAULT_PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
