@@ -2,7 +2,7 @@
 import argparse, os, sys, signal, subprocess, time
 
 SELF = os.getpid()
-SCRIPT_DIR = "./event_scripts_spark/"
+SCRIPT_DIR = "./event_scripts/"
 RECORD_DIR = "./event_traces/"
 RATE_NS = "500000"
 DEFAULT_PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
@@ -160,12 +160,6 @@ def main():
         default=500000,
         help="Sample rate (ns)."
     )
-
-    parser.add_argument(
-        "--script-dir", 
-        type=str, 
-        default=SCRIPT_DIR,
-        help=f"Directory containing event scripts (default: {SCRIPT_DIR})")
 
     args = parser.parse_args()
 
