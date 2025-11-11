@@ -1,7 +1,22 @@
 from bcc import BPF
-import sys
+import sys, os
 
-def get_bpf_source():
+# Detect if the kernel supports ring buffer maps (5.8+)
+def _kernel_supports_ringbuf():
+    rel = os.uname().release
+    rel = rel.split("-", 1)[0]
+    parts = rel.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return True
+
+    return major > 5 or (major == 5 and minor >= 8)
+
+USE_RINGBUF = _kernel_supports_ringbuf()
+
+def _ringbuf_bpf_source():
     return """
 #include <uapi/linux/ptrace.h>
 
@@ -91,6 +106,22 @@ int ncclAllReduce_enter(struct pt_regs *ctx) {
     return gen_alloc_enter(ctx, size_bytes);
 }
 """
+
+def get_bpf_source():
+    base = _ringbuf_bpf_source()
+    
+    if USE_RINGBUF:
+        return base
+
+    perf_src = base.replace(
+        "BPF_RINGBUF_OUTPUT(events, 1 << 12);",
+        "BPF_PERF_OUTPUT(events);"
+    ).replace(
+        "events.ringbuf_output(&event, sizeof(event), 0);",
+        "events.perf_submit(ctx, &event, sizeof(event));"
+    )
+
+    return perf_src
 
 def attach_probes(bpf, 
                   sym, 

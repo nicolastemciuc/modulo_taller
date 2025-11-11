@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import time, argparse, sys
 from bcc import BPF
-from send import get_call_back
+from send import get_call_back, USE_RINGBUF
 
 kstime = time.time_ns() - time.monotonic_ns()
 
@@ -59,6 +59,18 @@ int syscall__probe_ret_write(struct pt_regs* ctx) {
 }
 """
 
+if not USE_RINGBUF:
+    bpf_text = (
+        bpf_text.replace(
+            "BPF_RINGBUF_OUTPUT(events, 1 << 12);",
+            "BPF_PERF_OUTPUT(events);"
+        )
+        .replace(
+            "events.ringbuf_output(&event, sizeof(event), 0);",
+            "events.perf_submit(ctx, &event, sizeof(event));"
+        )
+    )
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--pid", default=None)
 args = parser.parse_args()
@@ -83,11 +95,17 @@ bpf_obj.attach_kretprobe(
     fn_name="syscall__probe_ret_write"
 )
 cb = get_call_back(bpf_obj)
-bpf_obj['events'].open_ring_buffer(cb)
+if USE_RINGBUF:
+    bpf_obj["events"].open_ring_buffer(cb)
+else:
+    bpf_obj["events"].open_perf_buffer(cb)
 
 while True:
     try:
-        bpf_obj.ring_buffer_consume()
+        if USE_RINGBUF:
+            bpf_obj.ring_buffer_consume()
+        else:
+            bpf_obj.perf_buffer_poll()
     except KeyboardInterrupt:
         exit()
     sys.stdout.flush()
