@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse, os, sys, signal, subprocess, time
+from pathlib import Path
 
-SELF = os.getpid()
-SCRIPT_DIR = "./event_scripts/"
-RECORD_DIR = "./event_traces/"
+# --- repo-relative paths ---
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = REPO_ROOT / "trace_collector" / "event_scripts"
+RECORD_DIR = REPO_ROOT / "trace_collector" / "event_traces"
+DEFAULT_PID_FILE = REPO_ROOT / "workloads/latest/pids.txt"
 RATE_NS = "500000"
-DEFAULT_PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
 
 SCRIPTS = {
     "cuda_mem.py":   {"args": ["-s", RATE_NS], "record": "cuda_allocations"},

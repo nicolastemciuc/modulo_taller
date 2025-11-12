@@ -3,7 +3,7 @@ import csv, os, time, signal, shutil
 from pathlib import Path
 
 SELF = os.getpid()
-PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
+PID_FILE = "../workloads/latest/pids.txt"
 OUT_DIR = Path("polling_traces")
 INTERVAL = 0.25
 
