@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
-import csv, re, subprocess
+import csv, re, subprocess, configparser, sys
+from pathlib import Path
 
-TCPDUMP_CMD = "tcpdump_pfring"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = REPO_ROOT / "trace_collector" / "interface.conf"
+
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
+
+INTERFACE = config["network"].get("interface")
+TCPDUMP_CMD = config["collector"].get("tcpdump_cmd", "tcpdump")
+DEFAULT_FILTER = config["collector"].get("filter", "ip")
+
+if not (INTERFACE and TCPDUMP_CMD and DEFAULT_FILTER):
+    print("ERROR: Missing configuration values:")
+    sys.exit(1)
+
 LINE_RE = re.compile(
     r'^(?P<ts_epoch>\d+\.\d+)\s+IP\s+'
     r'(?P<src_ip>\d+\.\d+\.\d+\.\d+)\.(?P<src_port>\d+)\s+>\s+'
     r'(?P<dst_ip>\d+\.\d+\.\d+\.\d+)\.(?P<dst_port>\d+):.*length\s+(?P<length>\d+)'
 )
-DEFAULT_FILTER = "not port 22 and ip and tcp and ((ip[2:2]-((ip[0]&0x0f)<<2)-((tcp[12]&0xf0)>>2))>0)"
 
 def main():
-    cmd = ["sudo", TCPDUMP_CMD, "-tt", "-ni", "ens3", "-l", DEFAULT_FILTER]
+    cmd = ["sudo", TCPDUMP_CMD, "-tt", "-ni", INTERFACE, "-l", DEFAULT_FILTER]
     with open("packet_traces.csv", "w", newline="", encoding="utf-8") as csv_f:
         w = csv.writer(csv_f)
         w.writerow(["ts_ns","timestamp_epoch_s","source_ip","source_port","destination_ip","destination_port","packet_size"])
