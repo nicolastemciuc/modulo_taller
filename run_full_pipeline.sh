@@ -7,10 +7,10 @@ POLLING_COLLECTOR="trace_collector/polling_traces.py"
 PACKET_COLLECTOR="trace_collector/packet_traces.py"
 EVENT_COLLECTOR="trace_collector/event_traces.py"
 
-FLOW_EXTRACTION="dataset_construction/flow_extraction.py"        # sudo
-FEATURE_EXTRACTION="dataset_construction/feature_extraction.py"  # sudo
-HIST_FEATURES="dataset_construction/historical_information.py"
-LABELING="dataset_construction/labeling.py"
+FLOW_EXTRACTION="dataset_construction/flow_extraction.py"        # no sudo
+FEATURE_EXTRACTION="dataset_construction/feature_extraction.py"  # no sudo
+HIST_FEATURES="dataset_construction/historical_information.py"   # no sudo
+LABELING="dataset_construction/labeling.py"                      # no sudo
 
 green(){ printf "\033[1;32m%s\033[0m\n" "$*"; }
 yellow(){ printf "\033[1;33m%s\033[0m\n" "$*"; }
@@ -71,13 +71,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 1) Run workloads
+# 1) Run workloads (as normal user)
 green "==> [1/3] Launching Spark workloads"
 bash "${WORKLOADS_SCRIPT}" &
 WORKLOADS_PID=$!
 echo "Workloads PID=${WORKLOADS_PID}"
 
-# 2) Start collectors
+# 2) Start collectors (with sudo when needed)
 green "==> [2/3] Starting trace collectors"
 start_collector "polling_traces" "${SUDO} python3 \"${POLLING_COLLECTOR}\""
 start_collector "packet_traces"  "${SUDO} python3 \"${PACKET_COLLECTOR}\""
@@ -97,7 +97,7 @@ done
 PIDS=()
 NAMES=()
 
-# 3) Build the dataset
+# 3) Build the dataset (NO sudo → user Python env with pandas)
 green "==> [3/3] Building the dataset"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,10 +114,10 @@ fi
 pushd "${DATASET_DIR}" >/dev/null
 
 green "-- [3.1] Flow extraction"
-${SUDO} python3 "./flow_extraction.py"
+python3 "./flow_extraction.py"
 
 green "-- [3.2] Feature extraction"
-${SUDO} python3 "./feature_extraction.py"
+python3 "./feature_extraction.py"
 
 green "-- [3.3] Historical features"
 python3 "./historical_information.py"
