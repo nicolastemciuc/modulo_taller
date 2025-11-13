@@ -11,6 +11,22 @@ def cumulative_at(timeline, t_ns):
     idx = bisect_right(times, t_ns) - 1
     return 0 if idx < 0 else timeline[idx][1]
 
+def parse_ts_ns(row):
+    raw = (row.get("ts_ns", "") or "").strip()
+    if not raw:
+        return None
+    # Try integer ns
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    # Try float seconds → ns
+    try:
+        f = float(raw)
+        return int(f * 1_000_000_000)
+    except ValueError:
+        return None
+
 def extract_flows(input_file, output_file, flow_gap_us, vantage_ip):
     flow_gap_ns = flow_gap_us * 1000
     fid = 0
@@ -20,7 +36,12 @@ def extract_flows(input_file, output_file, flow_gap_us, vantage_ip):
     with open(input_file, "r", newline="", encoding="utf-8") as f:
         r = csv.DictReader(f)
         for row in r:
-            t_ns = int(row["ts_ns"])
+            t_ns = parse_ts_ns(row)
+            if t_ns is None:
+                # You can uncomment this if you want to debug bad rows:
+                # print(f"[flow] skipping row with bad ts_ns={row.get('ts_ns')!r}", flush=True)
+                continue
+
             ts_raw = row.get("timestamp_epoch_s","")
             src_ip, dst_ip = row["source_ip"], row["destination_ip"]
             key = (src_ip, row["source_port"], dst_ip, row["destination_port"])
