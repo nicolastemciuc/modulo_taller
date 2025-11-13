@@ -2,10 +2,13 @@
 import csv, os, time, signal, shutil
 from pathlib import Path
 
-SELF = os.getpid()
-PID_FILE = "../workloads/latest/pids.txt"
-OUT_DIR = Path("polling_traces")
+# Repo-relative paths
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PID_FILE = REPO_ROOT / "workloads/latest/pids.txt"
+OUT_DIR = REPO_ROOT / "trace_collector" / "polling_traces"
 INTERVAL = 0.25
+
+SELF = os.getpid()
 
 PID_FEATURES = [
     "disk_read_bytes",
@@ -89,7 +92,7 @@ def read_system_memavailable_bytes():
         pass
     return 0
 
-def read_pid_file(path: str) -> set[int]:
+def read_pid_file(path) -> set[int]:
     p = Path(path)
     if not p.exists():
         return set()
