@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-import csv, os
+import csv, os, sys
 from bisect import bisect_right
 from pathlib import Path
 
-FLOWS_PATH   = Path("flow_extraction.csv")
-POLLING_DIR  = Path("../trace_collector/polling_traces")
-EVENTS_DIR   = Path("../trace_collector/event_traces")
-OUT_PATH     = Path("feature_extraction.csv")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
+
+FLOWS_PATH = REPO_ROOT / CFG["flow_extraction"]["output_csv"]
+POLLING_DIR = REPO_ROOT / CFG["polling_traces"]["output_dir"]
+EVENTS_DIR = REPO_ROOT / CFG["event_traces"]["output_dir"]
+OUT_PATH = REPO_ROOT / CFG["feature_extraction"]["output_csv"]
 
 def load_polled_timeline(path: Path):
     tl = []

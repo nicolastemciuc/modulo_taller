@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-import os
+import os, sys
 import pandas as pd
+from pathlib import Path
 
-K = 5
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
+
+K = CFG["historical_information"]["k"]
+FEATURE_EXTRACTION_CSV = REPO_ROOT / CFG["feature_extraction"]["output_csv"]
+HISTORICAL_INFORMATION_CSV = REPO_ROOT / CFG["historical_information"]["output_csv"]
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    inp = os.path.join(base, "feature_extraction.csv")
-    out = os.path.join(base, "historical_information.csv")
+    inp = FEATURE_EXTRACTION_CSV
+    out = HISTORICAL_INFORMATION_CSV
 
     df = pd.read_csv(inp)
 
