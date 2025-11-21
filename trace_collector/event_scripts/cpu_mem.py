@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from bcc import BPF
 import argparse, sys, time
-from mem import get_bpf_source, attach_probes
+from mem import get_bpf_source, attach_probes, USE_RINGBUF
 
 kstime = time.time_ns() - time.monotonic_ns()
 
@@ -28,11 +28,17 @@ def callback(ctx, data, size):
     event = bpf['events'].event(data)
     print("%d,%d" % (event.timestamp_ns + kstime, event.size))
 
-bpf['events'].open_ring_buffer(callback)
+if USE_RINGBUF:
+    bpf["events"].open_ring_buffer(callback)
+else:
+    bpf["events"].open_perf_buffer(callback)
 
 while True:
     try:
-        bpf.ring_buffer_consume()
+        if USE_RINGBUF:
+            bpf.ring_buffer_consume()
+        else:
+            bpf.perf_buffer_poll()
     except KeyboardInterrupt:
         exit()
     sys.stdout.flush()

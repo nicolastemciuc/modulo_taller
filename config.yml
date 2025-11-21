@@ -1,0 +1,31 @@
+global:
+  workload_pid_file: "workloads/latest/pids.txt"
+  host_ip: "192.168.60.81"
+  flow_gap_us: 5000
+packet_traces:
+  interface: "ens3"
+  output_csv: "out/packet_traces.csv"
+polling_traces:
+  time_interval: 0.25
+  features:
+    - "disk_read_bytes"
+    - "disk_write_bytes"
+    - "vmsize_bytes"
+    - "stime_ticks"
+    - "vmdata_bytes"
+    - "vmrss_bytes"
+    - "utime_ticks"
+  output_dir: "out/polling_traces"
+event_traces:
+  output_dir: "out/event_traces"
+  rate_ns: 500000
+flow_extraction:
+  output_csv: "out/flow_extraction.csv"
+feature_extraction:
+  output_csv: "out/feature_extraction.csv"
+historical_information:
+  k: 5
+  output_csv: "out/historical_information.csv"
+labeling:
+  output_csv: "out/labeling.csv"
+  elephant_fraction: 0.10

@@ -1,24 +1,18 @@
-#!/usr/bin/env python3
-import csv, os, time, signal, shutil
+import csv, os, time, signal, shutil, sys
 from pathlib import Path
 
-SELF = os.getpid()
-PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
-OUT_DIR = Path("polling_traces")
-INTERVAL = 0.25
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
 
-PID_FEATURES = [
-    "disk_read_bytes",
-    "disk_write_bytes",
-    "vmsize_bytes",
-    "stime_ticks",
-    "vmdata_bytes",
-    "vmrss_bytes",
-    "utime_ticks",
-]
+SELF = os.getpid()
+PID_FILE = REPO_ROOT / CFG["global"]["workload_pid_file"]
+OUT_DIR = REPO_ROOT / CFG["polling_traces"]["output_dir"]
+INTERVAL = CFG["polling_traces"]["time_interval"]
+PID_FEATURES = CFG["polling_traces"]["features"]
 
 stop = False
-def _stop(*_):  # SIGINT/SIGTERM handler
+def _stop(*_):
     global stop; stop = True
 signal.signal(signal.SIGINT, _stop)
 signal.signal(signal.SIGTERM, _stop)

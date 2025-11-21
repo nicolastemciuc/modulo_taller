@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 import argparse, os, sys, signal, subprocess, time
+from pathlib import Path
 
-SELF = os.getpid()
-SCRIPT_DIR = "./event_scripts/"
-RECORD_DIR = "./event_traces/"
-RATE_NS = "500000"
-DEFAULT_PID_FILE = "/mnt/extradisk/workloads/latest/pids.txt"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
+
+SCRIPT_DIR = REPO_ROOT / "trace_collector" / "event_scripts"
+PID_FILE = REPO_ROOT / CFG["global"]["workload_pid_file"]
+OUT_DIR = REPO_ROOT / CFG["event_traces"]["output_dir"]
+RATE_NS = CFG["event_traces"]["rate_ns"]
 
 SCRIPTS = {
     "cuda_mem.py":   {"args": ["-s", RATE_NS], "record": "cuda_allocations"},
@@ -39,7 +43,7 @@ def launch_script(script, pid_str, cfg):
         print(f"[warn] script not found: {script_path}", file=sys.stderr)
         return None, None
 
-    log_path = os.path.join(RECORD_DIR, f"{cfg['record']}_pid{pid_str}.csv")
+    log_path = os.path.join(OUT_DIR, f"{cfg['record']}_pid{pid_str}.csv")
     create_log_dir(log_path)
 
     cmd = ["sudo", sys.executable, script_path, "-p", pid_str] + cfg["args"]
@@ -144,8 +148,8 @@ def main():
     parser.add_argument(
         "--pid-file",
         type=str,
-        default=DEFAULT_PID_FILE,
-        help=f"Path to newline-separated PID file (default: {DEFAULT_PID_FILE})"
+        default=PID_FILE,
+        help=f"Path to newline-separated PID file (default: {PID_FILE})"
     )
 
     parser.add_argument(

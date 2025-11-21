@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import argparse
 import sys
-from send import get_bpf, get_call_back
+import argparse
+from send import get_bpf, get_call_back, USE_RINGBUF
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--pid", default=None)
@@ -15,11 +15,18 @@ if args.pid is None:
 bpf_obj = get_bpf(args.pid)
 bpf_obj.attach_kretprobe(event="__sys_sendmsg", fn_name="send_return")
 cb = get_call_back(bpf_obj)
-bpf_obj['events'].open_ring_buffer(cb)
+
+if USE_RINGBUF:
+    bpf_obj["events"].open_ring_buffer(cb)
+else:
+    bpf_obj["events"].open_perf_buffer(cb)
 
 while True:
     try:
-        bpf_obj.ring_buffer_consume()
+        if USE_RINGBUF:
+            bpf_obj.ring_buffer_consume()
+        else:
+            bpf_obj.perf_buffer_poll()
     except KeyboardInterrupt:
         exit()
     sys.stdout.flush()
