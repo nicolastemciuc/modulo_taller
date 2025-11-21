@@ -7,14 +7,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 from config_loader import CFG
 
-FLOWS_PATH = REPO_ROOT / CFG["flow_extraction"]["output_csv"]
+FLOWS_PATH  = REPO_ROOT / CFG["flow_extraction"]["output_csv"]
 POLLING_DIR = REPO_ROOT / CFG["polling_traces"]["output_dir"]
-EVENTS_DIR = REPO_ROOT / CFG["event_traces"]["output_dir"]
-OUT_PATH = REPO_ROOT / CFG["feature_extraction"]["output_csv"]
+EVENTS_DIR  = REPO_ROOT / CFG["event_traces"]["output_dir"]
+OUT_PATH    = REPO_ROOT / CFG["feature_extraction"]["output_csv"]
+
 
 def load_polled_timeline(path: Path):
     tl = []
-    if not path.exists(): return tl
+    if not path.exists():
+        return tl
     with open(path, "r", newline="", encoding="utf-8") as f:
         r = csv.DictReader(f)
         if not r.fieldnames or "ts_ns" not in r.fieldnames or "value" not in r.fieldnames:
@@ -30,13 +32,37 @@ def load_polled_timeline(path: Path):
     tl.sort(key=lambda x: x[0])
     return tl
 
-def detect_polled_feature_files(polling_dir: Path):
-    out = {}
+
+def build_polling_timelines_by_pid(polling_dir: Path):
+    per_pid = {}
+    global_feats = {}
+
+    mem_path = polling_dir / "memavailable_bytes.csv"
+    if mem_path.exists():
+        global_feats["memavailable_bytes"] = load_polled_timeline(mem_path)
+
     for p in sorted(polling_dir.glob("*.csv")):
-        if ".pid" in p.name: continue
-        feat = p.stem.split(".pid")[0]
-        out[feat] = p
-    return out
+        name = p.name
+        if name == "memavailable_bytes.csv":
+            continue
+        stem = p.stem
+        if "_pid" not in stem:
+            continue
+        feat, pid_str = stem.split("_pid", 1)
+        pid_str = pid_str.strip()
+        if not pid_str:
+            continue
+        tl = load_polled_timeline(p)
+        if not tl:
+            continue
+        per_pid.setdefault(pid_str, {})[feat] = tl
+
+    for pid, feats in per_pid.items():
+        for gfeat, tl in global_feats.items():
+            feats.setdefault(gfeat, tl)
+
+    return per_pid
+
 
 def parse_event_csv_rows(path: Path):
     if not path.exists() or path.stat().st_size == 0:
@@ -46,7 +72,8 @@ def parse_event_csv_rows(path: Path):
         with open(path, "r", newline="", encoding="utf-8") as f:
             rd = csv.reader(f)
             for raw in rd:
-                if len(raw) < 2: continue
+                if len(raw) < 2:
+                    continue
                 ts_s, val_s = raw[0].strip(), raw[1].strip()
                 try:
                     t = int(ts_s)
@@ -58,42 +85,47 @@ def parse_event_csv_rows(path: Path):
         pass
     return rows
 
-def load_event_timelines(events_dir: Path):
-    grouped = {}
+
+def build_event_timelines_by_pid(events_dir: Path):
+    per_pid = {}
     for p in sorted(events_dir.glob("*.csv")):
-        base = p.stem.split("_pid")[0]
-        grouped.setdefault(base, []).append(p)
-    timelines = {}
-    for evt, files in grouped.items():
-        merged = []
-        for fp in files:
-            merged.extend(parse_event_csv_rows(fp))
-        if merged:
-            merged.sort(key=lambda x: x[0])
-            timelines[evt] = merged
-    return timelines
+        stem = p.stem
+        if "_pid" not in stem:
+            continue
+        base, pid_str = stem.split("_pid", 1)
+        pid_str = pid_str.strip()
+        if not pid_str:
+            continue
+        tl = parse_event_csv_rows(p)
+        if not tl:
+            continue
+        per_pid.setdefault(pid_str, {}).setdefault(base, []).extend(tl)
+
+    for pid, evts in per_pid.items():
+        for evt, tl in evts.items():
+            tl.sort(key=lambda x: x[0])
+
+    return per_pid
+
 
 def last_sample_at_or_before(tl, t_ns):
-    if not tl: return None
+    if not tl:
+        return None
     times = [x[0] for x in tl]
     i = bisect_right(times, t_ns) - 1
     return None if i < 0 else tl[i]
 
-def main():
-    if not FLOWS_PATH.exists():
-        raise SystemExit(f"[error] flows file not found: {FLOWS_PATH}")
 
-    polled_files = detect_polled_feature_files(POLLING_DIR) if POLLING_DIR.exists() else {}
-    polled_tl = {feat: load_polled_timeline(path) for feat, path in polled_files.items()}
-    polled_tl = {k: v for k, v in polled_tl.items() if v}
-
-    event_tl = load_event_timelines(EVENTS_DIR) if EVENTS_DIR.exists() else {}
-
-    if not polled_tl and not event_tl:
-        raise SystemExit("[error] no valid timelines (polling/events) loaded")
+def write_features_for_pid(pid_str: str, polled_tl: dict, event_tl: dict):
+    out_base = Path(OUT_PATH)
+    out_dir = out_base.parent
+    out_stem = out_base.stem
+    out_suffix = out_base.suffix
+    pid_out = out_dir / f"{out_stem}_pid{pid_str}{out_suffix}"
 
     with open(FLOWS_PATH, "r", newline="", encoding="utf-8") as fin, \
-         open(OUT_PATH, "w", newline="", encoding="utf-8") as fout:
+         open(pid_out, "w", newline="", encoding="utf-8") as fout:
+
         r = csv.DictReader(fin)
         fields = list(r.fieldnames or [])
         if "start_ts_ns" not in fields:
@@ -101,11 +133,12 @@ def main():
 
         polled_fields = sorted(polled_tl.keys())
         event_fields  = sorted(event_tl.keys())
-        extra_fields  = polled_fields + [e for evt in event_fields for e in (evt, f"tt_{evt}")]
+
+        extra_fields = polled_fields + [e for evt in event_fields for e in (evt, f"tt_{evt}")]
         w = csv.DictWriter(fout, fieldnames=fields + extra_fields)
         w.writeheader()
 
-        missing_polled = {k: 0 for k in polled_fields}
+        missing_polled    = {k: 0 for k in polled_fields}
         missing_event_val = {k: 0 for k in event_fields}
 
         for row in r:
@@ -120,10 +153,6 @@ def main():
                     missing_polled[feat] += 1
                     continue
                 tl = polled_tl[feat]
-                if not tl:
-                    row[feat] = ""
-                    missing_polled[feat] += 1
-                    continue
                 times = [x[0] for x in tl]
                 i = bisect_right(times, start_ts_ns) - 1
                 if i < 0:
@@ -151,13 +180,36 @@ def main():
 
             w.writerow(row)
 
-    print(f"[join] wrote: {OUT_PATH}", file=os.sys.stderr)
+    print(f"[join] pid={pid_str} wrote: {pid_out}", file=sys.stderr)
     for feat, cnt in (polled_fields and missing_polled or {}).items():
         if cnt:
-            print(f"[join] polled {feat}: {cnt} missing", file=os.sys.stderr)
+            print(f"[join] pid={pid_str} polled {feat}: {cnt} missing", file=sys.stderr)
     for evt, cnt in missing_event_val.items():
         if cnt:
-            print(f"[join] event {evt}: {cnt} missing", file=os.sys.stderr)
+            print(f"[join] pid={pid_str} event {evt}: {cnt} missing", file=sys.stderr)
+
+
+def main():
+    if not FLOWS_PATH.exists():
+        raise SystemExit(f"[error] flows file not found: {FLOWS_PATH}")
+
+    polling_by_pid = build_polling_timelines_by_pid(POLLING_DIR) if POLLING_DIR.exists() else {}
+    events_by_pid  = build_event_timelines_by_pid(EVENTS_DIR) if EVENTS_DIR.exists() else {}
+
+    all_pids = sorted(set(polling_by_pid.keys()) | set(events_by_pid.keys()))
+    if not all_pids:
+        raise SystemExit("[error] no PIDs found in polling/events dirs")
+
+    for pid_str in all_pids:
+        polled_tl = polling_by_pid.get(pid_str, {})
+        event_tl  = events_by_pid.get(pid_str, {})
+
+        if not polled_tl and not event_tl:
+            print(f"[join] pid={pid_str} has no timelines, skipping", file=sys.stderr)
+            continue
+
+        write_features_for_pid(pid_str, polled_tl, event_tl)
+
 
 if __name__ == "__main__":
     main()
