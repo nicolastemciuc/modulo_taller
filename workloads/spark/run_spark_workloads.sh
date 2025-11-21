@@ -69,13 +69,13 @@ case "$mode" in
     wait
     ;;
   --svm)
-    run_one svm svm-sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
+    run_one svm sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
     wait
     ;;
   --parallel|*)
     run_one kmeans   kmeans     org.apache.spark.examples.mllib.KMeansExample "$APP_ARGS_KMEANS"
     run_one pagerank page-rank  PageRankExample                               "$APP_ARGS_PAGERANK"
-    run_one svm svm-sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
+    run_one svm sgd org.apache.spark.examples.mllib.SVMWithSGDExample "$APP_ARGS_SVM"
     wait
     ;;
 esac
