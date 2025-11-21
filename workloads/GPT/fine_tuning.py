@@ -1,5 +1,6 @@
 import torch
 import os
+import inspect
 
 from LoadDataset import load_quales_train
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -7,7 +8,11 @@ from trl import SFTConfig, SFTTrainer
 from peft import LoraConfig
 import torch.distributed as dist
 
-PIDFILE = "/mnt/extradisk/workloads/latest/pids.txt"
+CURRENT_DIR = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+REPO_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
+PIDFILE = os.path.join(REPO_ROOT, "workloads", "latest", "pids.txt")
+
+os.makedirs(os.path.dirname(PIDFILE), exist_ok=True)
 
 with open(PIDFILE, "a") as f:
     f.write(f"{os.getpid()}\n")
