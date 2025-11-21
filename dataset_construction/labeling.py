@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-import os
+import os, sys
 import pandas as pd
+from pathlib import Path
 
-INP  = "historical_information.csv"
-OUT  = "final.csv"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
+
+INP  = REPO_ROOT / CFG["historical_information"]["output_csv"]
+OUT  = REPO_ROOT / CFG["labeling"]["output_csv"]
 KEYS = ["src_ip"]
-ELEPHANT_FRAC = 0.10
+ELEPHANT_FRAC = CFG["labeling"]["elephant_fraction"]
 LINK_MBPS = 1000.0
 
 def main():
-    base = os.path.dirname(os.path.abspath(__file__))
-    df = pd.read_csv(os.path.join(base, INP))
+    df = pd.read_csv(os.path.abspath(INP))
 
     needed = {"start_ts_ns", "start_time", "end_time", "total_size"}
     missing = needed - set(df.columns)
@@ -33,7 +37,7 @@ def main():
     g = df.groupby(KEYS, sort=False)
     df["y_next_size"] = pd.to_numeric(g["total_size"].shift(-1), errors="coerce").astype("Int64")
 
-    df.to_csv(os.path.join(base, OUT), index=False)
+    df.to_csv(os.path.abspath(OUT), index=False)
 
 if __name__ == "__main__":
     main()

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-import csv, os
+import csv, os, sys
 from bisect import bisect_right
+from pathlib import Path
 
-FLOW_GAP_US = 5000
-VANTAGE_IP = "192.168.60.81"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+from config_loader import CFG
+
+FLOW_GAP_US = CFG["global"]["flow_gap_us"]
+HOST_IP = CFG["global"]["host_ip"]
 
 def cumulative_at(timeline, t_ns):
     if not timeline: return 0
@@ -78,9 +83,9 @@ def extract_flows(input_file, output_file, flow_gap_us, vantage_ip):
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    input_file = os.path.join(base, "../trace_collector/packet_traces.csv")
-    output_file = os.path.join(base, "flow_extraction.csv")
-    extract_flows(input_file, output_file, FLOW_GAP_US, VANTAGE_IP)
+    input_file = os.path.join(REPO_ROOT, CFG["packet_traces"]["output_csv"])
+    output_file = os.path.join(REPO_ROOT, CFG["flow_extraction"]["output_csv"])
+    extract_flows(input_file, output_file, FLOW_GAP_US, HOST_IP)
 
 if __name__ == "__main__":
     main()
