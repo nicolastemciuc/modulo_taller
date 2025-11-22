@@ -1,6 +1,6 @@
 *.csv
 *.log
-workloads/GPT/__pycache__/
+__pycache__/
 workloads/latest/*
 dataset_construction/polling_traces/
 trace_collector/event_traces/
